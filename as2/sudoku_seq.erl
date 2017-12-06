@@ -11,7 +11,7 @@
 %% -------------------------------------------------------------------
 -module(sudoku).
 
--export([par_benchmarks/0,benchmarks/0, solve_all/0, solve/1]).
+-export([benchmarks/0, solve_all/0, solve/1]).
 
 -ifdef(PROPER).
 -include_lib("proper/include/proper.hrl").
@@ -35,24 +35,6 @@
 -define(EXECUTIONS, 42).
 -define(PROBLEMS,  "sudoku_problems.txt").
 -define(SOLUTIONS, "sudoku_solutions.txt").
-
--spec par_benchmarks() -> {musecs(), bm_results()}.
-par_benchmarks() ->
-  {ok, Problems} = file:consult(?PROBLEMS),
-  timer:tc(fun () -> par_benchmarks(Problems) end).
-
--spec par_benchmarks([puzzle()]) -> bm_results().
-par_benchmarks([]) -> [];
-
-par_benchmarks([Puzzle|Puzzles]) ->
-  Par = self(),
-  Ref = make_ref(),
-  spawn_link(fun() ->
-                 Par ! {Ref, par_benchmarks(Puzzles)}
-             end),
-  {Name,M} = Puzzle, 
-  Result = {Name, bm(fun() -> solve(M) end)}, 
-  receive {Ref, Ys} -> [Result|Ys] end.
 
 -spec benchmarks() -> {musecs(), bm_results()}.
 benchmarks() ->
@@ -154,7 +136,7 @@ fill(M) ->
 
 refine(M) ->
   NewM =
-    par_refine_rows(
+    refine_rows(
       transpose(
 	refine_rows(
 	  transpose(
@@ -166,28 +148,6 @@ refine(M) ->
      true ->
       refine(NewM)
   end.
-
-
-par_spawn_refine_rows([]) -> [];
-par_spawn_refine_rows([R|M]) ->
-  Par = self(),
-  Ref = make_ref(), 
-  spawn_link(fun() ->
-                 Par ! {Ref, par_spawn_refine_rows(M)}
-             end),
-  RefinedRow = refine_row(R),
-  receive {Ref, Row} -> [RefinedRow|Row] end.
-
-par_refine_rows(no_solution) ->
-  no_solution;
-
-par_refine_rows(M) ->
-  Refined = par_spawn_refine_rows(M),
-  case lists:member(no_solution, Refined) of
-    true -> no_solution;
-    false -> Refined
-  end.
-
 
 refine_rows(no_solution) ->
   no_solution;
