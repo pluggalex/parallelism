@@ -149,10 +149,10 @@ fill(M) ->
   Nine = ?NINE,
   [[case is_decided(X) of true -> X; false -> Nine end || X <- Row] || Row <- M].
 
-unique(A, B, C) -> 
+inter(A, B, C) -> sets:to_list(sets:intersection(sets:from_list(A),sets:from_list([B|C]))). 
 
 intersect([], [], [], Acc) -> []; 
-intersect([AH|AT], [BH|BT], [CH|CT], Acc) -> intersect(AT,BT,CT, [unique(AH, BH, CH) | Acc]).
+intersect([AH|AT], [BH|BT], [CH|CT], Acc) -> intersect(AT,BT,CT, inter(AH, BH, CH) ++ Acc).
 
 %% refine entries which are lists by removing numbers they are known
 %% not to be
@@ -176,10 +176,15 @@ parallel_refine(M) ->
 
   receive {ColRef, Y} -> ColMatrix = transpose(Y) end,
   receive {BlockRef, Z} -> BlockMatrix = unblocks(Z) end,
- % Receive{RowRef, X} -> RowMatrix = X,
+ %Receive{RowRef, X} -> RowMatrix = X,
 
-  InterMatrix = [sets:intersection(Elem1, Elem2) || {Elem1, Elem2} <- [{Row, Col} || {Row,Col} <- lists:zip(RowMatrix,ColMatrix)]],
-  NewM = [sets:intersection(Elem1, Elem2) || {Elem1, Elem2} <- [{Inter, Block} || {Inter,Block} <- lists:zip(InterMatrix, BlockMatrix)]],
+  io:format("~w~n", [RowMatrix]),
+  io:format("~w~n", [ColMatrix]),
+  io:format("~w~n", [BlockMatrix]),
+  NewM = intersect(RowMatrix, ColMatrix, BlockMatrix, []),
+  io:format("~w~n", [NewM]),
+  %InterMatrix = [sets:intersection(Elem1, Elem2) || {Elem1, Elem2} <- [{Row, Col} || {Row,Col} <- lists:zip(RowMatrix,ColMatrix)]],
+  %NewM = [sets:intersection(Elem1, Elem2) || {Elem1, Elem2} <- [{Inter, Block} || {Inter,Block} <- lists:zip(InterMatrix, BlockMatrix)]],
 
   if M =:= NewM ->
       M;
