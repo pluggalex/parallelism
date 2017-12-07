@@ -9,7 +9,7 @@
 %% then Dave Clarke, who are thus responsible for any bug or problem 
 %% that might exist.
 %% -------------------------------------------------------------------
--module(sudoku).
+-module(sudoku_seq).
 
 -export([benchmarks/0, solve_all/0, solve/1]).
 
@@ -32,7 +32,7 @@
 %%
 %% benchmarking code
 %%
--define(EXECUTIONS, 42).
+-define(EXECUTIONS, 1).
 -define(PROBLEMS,  "sudoku_problems.txt").
 -define(SOLUTIONS, "sudoku_solutions.txt").
 

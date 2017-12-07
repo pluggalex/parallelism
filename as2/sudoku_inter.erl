@@ -9,7 +9,7 @@
 %% then Dave Clarke, who are thus responsible for any bug or problem 
 %% that might exist.
 %% -------------------------------------------------------------------
--module(sudoku).
+-module(sudoku_inter).
 
 -export([par_benchmarks/0,benchmarks/0, solve_all/0, solve/1]).
 
@@ -85,7 +85,7 @@ solve_all() ->
 %%
 -spec solve(matrix()) -> solution().
 solve(M) ->
-  Solution = solve_refined(refine(fill(M))),
+  Solution = solve_refined(parallel_refine(fill(M))),
   case valid_solution(Solution) of
     true ->
       Solution;
@@ -149,12 +149,51 @@ fill(M) ->
   Nine = ?NINE,
   [[case is_decided(X) of true -> X; false -> Nine end || X <- Row] || Row <- M].
 
+unique(A, B, C) -> 
+
+intersect([], [], [], Acc) -> []; 
+intersect([AH|AT], [BH|BT], [CH|CT], Acc) -> intersect(AT,BT,CT, [unique(AH, BH, CH) | Acc]).
+
+%% refine entries which are lists by removing numbers they are known
+%% not to be
+
+parallel_refine(M) ->
+%  NewM =
+%    refine_rows(
+%      transpose(
+%	refine_rows(
+%	  transpose(
+%	    unblocks(
+%	      refine_rows(
+%		blocks(M))))))),
+  Par = self(),
+%  RowRef = make_ref(),
+  ColRef = make_ref(),
+  BlockRef = make_ref(),
+  spawn_link(fun() -> Par ! {ColRef, refine_rows(transpose(M))} end),
+  spawn_link(fun() -> Par ! {BlockRef, refine_rows(blocks(M))} end),
+  RowMatrix = refine_rows(M),
+
+  receive {ColRef, Y} -> ColMatrix = transpose(Y) end,
+  receive {BlockRef, Z} -> BlockMatrix = unblocks(Z) end,
+ % Receive{RowRef, X} -> RowMatrix = X,
+
+  InterMatrix = [sets:intersection(Elem1, Elem2) || {Elem1, Elem2} <- [{Row, Col} || {Row,Col} <- lists:zip(RowMatrix,ColMatrix)]],
+  NewM = [sets:intersection(Elem1, Elem2) || {Elem1, Elem2} <- [{Inter, Block} || {Inter,Block} <- lists:zip(InterMatrix, BlockMatrix)]],
+
+  if M =:= NewM ->
+      M;
+     true ->
+      refine(NewM)
+  end.
+
+
 %% refine entries which are lists by removing numbers they are known
 %% not to be
 
 refine(M) ->
   NewM =
-    par_refine_rows(
+    refine_rows(
       transpose(
 	refine_rows(
 	  transpose(

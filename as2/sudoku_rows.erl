@@ -9,7 +9,7 @@
 %% then Dave Clarke, who are thus responsible for any bug or problem 
 %% that might exist.
 %% -------------------------------------------------------------------
--module(sudoku).
+-module(sudoku_rows).
 
 -export([par_benchmarks/0,benchmarks/0, solve_all/0, solve/1]).
 
