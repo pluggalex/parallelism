@@ -32,7 +32,7 @@
 %%
 %% benchmarking code
 %%
--define(EXECUTIONS, 42).
+-define(EXECUTIONS, 1).
 -define(PROBLEMS,  "sudoku_problems.txt").
 -define(SOLUTIONS, "sudoku_solutions.txt").
 
@@ -168,6 +168,13 @@ refine(M) ->
   end.
 
 
+par_refine_awesome(M) ->
+  Par = self(),
+  RowNumbers = lists:seq(1, length(M)),
+  [spawn_link(fun() -> Par ! {RN, refine_row(R)} end) || {R,RN} <- lists:zip(M, RowNumbers)],
+  lists:foldl(fun(X,Acc) -> receive {X, RefinedRow} -> Acc ++ [RefinedRow] end end, [], RowNumbers).
+
+
 par_spawn_refine_rows([]) -> [];
 par_spawn_refine_rows([R|M]) ->
   Par = self(),
@@ -182,7 +189,8 @@ par_refine_rows(no_solution) ->
   no_solution;
 
 par_refine_rows(M) ->
-  Refined = par_spawn_refine_rows(M),
+  Refined = par_refine_awesome(M),
+  %io:format("~w~n\n", [Refined]),
   case lists:member(no_solution, Refined) of
     true -> no_solution;
     false -> Refined
@@ -193,6 +201,7 @@ refine_rows(no_solution) ->
   no_solution;
 refine_rows(M) ->
   Refined = [refine_row(R) || R <- M],
+  %io:format("~w~n\n", [Refined]),
   case lists:member(no_solution, Refined) of
     true -> no_solution;
     false -> Refined
