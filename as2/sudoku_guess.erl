@@ -86,7 +86,7 @@ solve_all() ->
 -spec solve(matrix()) -> solution().
 solve(M) ->
   Solution = solve_refined(refine(fill(M))),
-  io:format("~w~n~n", [Solution]),
+  %io:format("~w~n~n", [Solution]),
   case valid_solution(Solution) of
     true ->
       Solution;
@@ -268,7 +268,7 @@ guess(M) ->
 		  is_list(X)]),
   {I, J, X}.
 
-par_guess(_, M0, I, J, []) -> [];
+par_guess(T, M0, I, J, Guesses) when length(Guesses) == 1 -> refine(update_element(M0, I, J, Guesses));
 par_guess(0, M0, I, J, Guesses) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];
 par_guess(T, M0, I, J, Guesses) ->  
   Par = self(),
@@ -277,8 +277,21 @@ par_guess(T, M0, I, J, Guesses) ->
   spawn_link(fun() ->
                  Par ! {Ref, par_guess(T-1, M0, I ,J, Guesses2)}
              end),
-  Ms = [refine(update_element(M0, I, J, G)) || G <- Guesses1],    
-  receive {Ref, GuessM} -> Ms ++ GuessM end.
+  Ms = par_guess(T-1, M0, I ,J, Guesses1),   
+  receive {Ref, GuessM} -> GuessM ++ Ms end.
+
+
+par_guess_awesome(T, M0, I, J, []) -> []; 
+par_guess_awesome(0, M0, I, J, [Head|Guesses]) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];  
+par_guess_awesome(T, M0, I, J, [Head|Guesses]) -> 
+  Par = self(),
+  Ref = make_ref(),
+  spawn_link(fun() -> 
+             Par ! {Ref, par_guess_awesome(T-1, M0, I, J, Guesses)}
+             end),
+
+  Ms = refine(update_element(M0, I, J, Head)),
+  receive {Ref, GuessM} -> [Ms|GuessM] end.
 
 
 %% given a matrix, guess an element to form a list of possible
@@ -286,8 +299,9 @@ par_guess(T, M0, I, J, Guesses) ->
 
 guesses(M0) ->
   {I, J, Guesses} = guess(M0),
+  %io:format("~w~n", [Guesses]),
   %Ms = [refine(update_element(M0, I, J, G)) || G <- Guesses],
-  Ms = par_guess(4, M0, I, J, Guesses),
+  Ms = par_guess_awesome(4, M0, I, J, Guesses),
   SortedGuesses = lists:sort([{hard(M), M} || M <- Ms, not is_wrong(M)]),
   [G || {_, G} <- SortedGuesses].
 
