@@ -11,7 +11,7 @@
 %% -------------------------------------------------------------------
 -module(sudoku_guess).
 
--export([par_benchmarks/0,benchmarks/0, solve_all/0, solve/1]).
+-export([benchmarks/0, solve_all/0, solve/1]).
 
 -ifdef(PROPER).
 -include_lib("proper/include/proper.hrl").
@@ -35,24 +35,6 @@
 -define(EXECUTIONS, 42).
 -define(PROBLEMS,  "sudoku_problems.txt").
 -define(SOLUTIONS, "sudoku_solutions.txt").
-
--spec par_benchmarks() -> {musecs(), bm_results()}.
-par_benchmarks() ->
-  {ok, Problems} = file:consult(?PROBLEMS),
-  timer:tc(fun () -> par_benchmarks(Problems) end).
-
--spec par_benchmarks([puzzle()]) -> bm_results().
-par_benchmarks([]) -> [];
-
-par_benchmarks([Puzzle|Puzzles]) ->
-  Par = self(),
-  Ref = make_ref(),
-  spawn_link(fun() ->
-                 Par ! {Ref, par_benchmarks(Puzzles)}
-             end),
-  {Name,M} = Puzzle, 
-  Result = {Name, bm(fun() -> solve(M) end)}, 
-  receive {Ref, Ys} -> [Result|Ys] end.
 
 -spec benchmarks() -> {musecs(), bm_results()}.
 benchmarks() ->
@@ -172,43 +154,10 @@ receive_matrix(Acc, 0) -> Acc;
 receive_matrix(Acc, RN) when RN > 0 ->
   receive_matrix([receive{RN, RefinedRow} -> RefinedRow end|Acc], RN-1).
 
-par_refine_awesome(M) ->
-  Par = self(),
-  RowNumbers = lists:seq(1, length(M)),
- % [spawn_link(fun() -> Par ! {RN, refine_row(R)} end) || {R,RN} <- lists:zip(M, RowNumbers)],
-  receive_matrix([], 9). 
-%lists:foldr(fun(X,Acc) -> receive {X, RefinedRow} -> [RefinedRow|Acc] end end, [], RowNumbers).
-
-
-par_spawn_refine_rows(_, []) -> [];
-par_spawn_refine_rows(0, M) -> [refine_row(R) || R <- M];
-par_spawn_refine_rows(T, M) ->
-  Par = self(),
-  Ref = make_ref(), 
-  {Matrix1, Matrix2} = lists:split(floor(length(M)/2), M),
-  spawn_link(fun() ->
-                 Par ! {Ref, par_spawn_refine_rows(T-1, Matrix2)}
-             end),
-  RefinedRow = par_spawn_refine_rows(T-1, Matrix1),
-  receive {Ref, Row} -> RefinedRow ++ Row end.
-
-par_refine_rows(no_solution) ->
-  no_solution;
-
-par_refine_rows(M) ->
-  Refined = par_spawn_refine_rows(1, M),
-  %io:format("~w~n\n", [Refined]),
-  case lists:member(no_solution, Refined) of
-    true -> no_solution;
-    false -> Refined
-  end.
-
-
 refine_rows(no_solution) ->
   no_solution;
 refine_rows(M) ->
   Refined = [refine_row(R) || R <- M],
-  %io:format("~w~n\n", [Refined]),
   case lists:member(no_solution, Refined) of
     true -> no_solution;
     false -> Refined
@@ -268,26 +217,32 @@ guess(M) ->
 		  is_list(X)]),
   {I, J, X}.
 
-par_guess(T, M0, I, J, Guesses) when length(Guesses) == 1 -> refine(update_element(M0, I, J, Guesses));
-par_guess(0, M0, I, J, Guesses) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];
-par_guess(T, M0, I, J, Guesses) ->  
+
+%% Our first attempt att parallelize the guessing. 
+%% Not used in the final solution and only left 
+%% to show our thought process.
+old_par_guess(T, M0, I, J, Guesses) when length(Guesses) == 1 -> refine(update_element(M0, I, J, Guesses));
+old_par_guess(0, M0, I, J, Guesses) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];
+old_par_guess(T, M0, I, J, Guesses) ->  
   Par = self(),
   Ref = make_ref(),
   {Guesses1, Guesses2} = lists:split(floor(length(Guesses)/2), Guesses),
   spawn_link(fun() ->
-                 Par ! {Ref, par_guess(T-1, M0, I ,J, Guesses2)}
+                 Par ! {Ref, old_par_guess(T-1, M0, I ,J, Guesses2)}
              end),
-  Ms = par_guess(T-1, M0, I ,J, Guesses1),   
+  Ms = old_par_guess(T-1, M0, I ,J, Guesses1),   
   receive {Ref, GuessM} -> GuessM ++ Ms end.
 
 
-par_guess_awesome(T, M0, I, J, []) -> []; 
-par_guess_awesome(0, M0, I, J, Guesses) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];  
-par_guess_awesome(T, M0, I, J, [Head|Guesses]) -> 
+
+%% Split up the guesses T times recursivly
+guess_parallel(T, M0, I, J, []) -> []; 
+guess_parallel(0, M0, I, J, Guesses) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];  
+guess_parallel(T, M0, I, J, [Head|Guesses]) -> 
   Par = self(),
   Ref = make_ref(),
   spawn_link(fun() -> 
-             Par ! {Ref, par_guess_awesome(T-1, M0, I, J, Guesses)}
+             Par ! {Ref, guess_parallel(T-1, M0, I, J, Guesses)}
              end),
 
   Ms = refine(update_element(M0, I, J, Head)),
@@ -296,12 +251,11 @@ par_guess_awesome(T, M0, I, J, [Head|Guesses]) ->
 
 %% given a matrix, guess an element to form a list of possible
 %% extended matrices, easiest problem first.
-
 guesses(M0) ->
   {I, J, Guesses} = guess(M0),
   %io:format("~w~n", [Guesses]),
   %Ms = [refine(update_element(M0, I, J, G)) || G <- Guesses],
-  Ms = par_guess_awesome(4, M0, I, J, Guesses),
+  Ms = guess_parallel(2, M0, I, J, Guesses),
   SortedGuesses = lists:sort([{hard(M), M} || M <- Ms, not is_wrong(M)]),
   [G || {_, G} <- SortedGuesses].
 
