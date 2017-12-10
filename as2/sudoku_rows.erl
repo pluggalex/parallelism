@@ -11,7 +11,7 @@
 %% -------------------------------------------------------------------
 -module(sudoku_rows).
 
--export([par_benchmarks/0,benchmarks/0, solve_all/0, solve/1]).
+-export([benchmarks/0, solve_all/0, solve/1]).
 
 -ifdef(PROPER).
 -include_lib("proper/include/proper.hrl").
@@ -35,24 +35,6 @@
 -define(EXECUTIONS, 1).
 -define(PROBLEMS,  "sudoku_problems.txt").
 -define(SOLUTIONS, "sudoku_solutions.txt").
-
--spec par_benchmarks() -> {musecs(), bm_results()}.
-par_benchmarks() ->
-  {ok, Problems} = file:consult(?PROBLEMS),
-  timer:tc(fun () -> par_benchmarks(Problems) end).
-
--spec par_benchmarks([puzzle()]) -> bm_results().
-par_benchmarks([]) -> [];
-
-par_benchmarks([Puzzle|Puzzles]) ->
-  Par = self(),
-  Ref = make_ref(),
-  spawn_link(fun() ->
-                 Par ! {Ref, par_benchmarks(Puzzles)}
-             end),
-  {Name,M} = Puzzle, 
-  Result = {Name, bm(fun() -> solve(M) end)}, 
-  receive {Ref, Ys} -> [Result|Ys] end.
 
 -spec benchmarks() -> {musecs(), bm_results()}.
 benchmarks() ->
@@ -154,7 +136,7 @@ fill(M) ->
 
 refine(M) ->
   NewM =
-    par_refine_rows(
+    refine_parallel(
       transpose(
 	refine_rows(
 	  transpose(
@@ -171,32 +153,32 @@ receive_matrix(Acc, 0) -> Acc;
 receive_matrix(Acc, RN) when RN > 0 ->
   receive_matrix([receive{RN, RefinedRow} -> RefinedRow end|Acc], RN-1).
 
-par_refine_awesome(M) ->
+%% One of our omplementation attempts that was too slow
+%% Kept to show our thought process
+old_refine_parallel(M) ->
   Par = self(),
   RowNumbers = lists:seq(1, length(M)),
- % [spawn_link(fun() -> Par ! {RN, refine_row(R)} end) || {R,RN} <- lists:zip(M, RowNumbers)],
-  receive_matrix([], 9). 
-%lists:foldr(fun(X,Acc) -> receive {X, RefinedRow} -> [RefinedRow|Acc] end end, [], RowNumbers).
+  [spawn_link(fun() -> Par ! {RN, refine_row(R)} end) || {R,RN} <- lists:zip(M, RowNumbers)],
+  lists:foldr(fun(X,Acc) -> receive {X, RefinedRow} -> [RefinedRow|Acc] end end, [], RowNumbers).
 
-
-par_spawn_refine_rows(_, []) -> [];
-par_spawn_refine_rows(0, M) -> [refine_row(R) || R <- M];
-par_spawn_refine_rows(T, M) ->
+%% Splits up the work of calling refine_row on T*2 threads
+refine_parallel_recursivly(_, []) -> [];
+refine_parallel_recursivly(0, M) -> [refine_row(R) || R <- M];
+refine_parallel_recursivly(T, M) ->
   Par = self(),
   Ref = make_ref(), 
   {Matrix1, Matrix2} = lists:split(floor(length(M)/2), M),
   spawn_link(fun() ->
-                 Par ! {Ref, par_spawn_refine_rows(T-1, Matrix2)}
+                 Par ! {Ref, refine_parallel_recursivly(T-1, Matrix2)}
              end),
-  RefinedRow = par_spawn_refine_rows(T-1, Matrix1),
+  RefinedRow = refine_parallel_recursivly(T-1, Matrix1),
   receive {Ref, Row} -> RefinedRow ++ Row end.
 
-par_refine_rows(no_solution) ->
+refine_parallel(no_solution) ->
   no_solution;
 
-par_refine_rows(M) ->
-  Refined = par_spawn_refine_rows(1, M),
-  %io:format("~w~n\n", [Refined]),
+refine_parallel(M) ->
+  Refined = refine_parallel_recursivly(1, M),
   case lists:member(no_solution, Refined) of
     true -> no_solution;
     false -> Refined
@@ -207,7 +189,6 @@ refine_rows(no_solution) ->
   no_solution;
 refine_rows(M) ->
   Refined = [refine_row(R) || R <- M],
-  %io:format("~w~n\n", [Refined]),
   case lists:member(no_solution, Refined) of
     true -> no_solution;
     false -> Refined

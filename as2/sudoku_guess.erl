@@ -68,7 +68,6 @@ solve_all() ->
 -spec solve(matrix()) -> solution().
 solve(M) ->
   Solution = solve_refined(refine(fill(M))),
-  %io:format("~w~n~n", [Solution]),
   case valid_solution(Solution) of
     true ->
       Solution;
@@ -253,7 +252,6 @@ guess_parallel(T, M0, I, J, [Head|Guesses]) ->
 %% extended matrices, easiest problem first.
 guesses(M0) ->
   {I, J, Guesses} = guess(M0),
-  %io:format("~w~n", [Guesses]),
   %Ms = [refine(update_element(M0, I, J, G)) || G <- Guesses],
   Ms = guess_parallel(2, M0, I, J, Guesses),
   SortedGuesses = lists:sort([{hard(M), M} || M <- Ms, not is_wrong(M)]),
