@@ -9,9 +9,9 @@
 %% then Dave Clarke, who are thus responsible for any bug or problem 
 %% that might exist.
 %% -------------------------------------------------------------------
--module(sudoku_guess).
+-module(sudoku_solution).
 
--export([par_benchmarks/0,benchmarks/0, solve_all/0, solve/1]).
+-export([benchmarks_parallel/0, benchmarks/0, solve_all_parallel/0, solve_parallel/1, solve_all/0, solve/1]).
 
 -ifdef(PROPER).
 -include_lib("proper/include/proper.hrl").
@@ -36,23 +36,24 @@
 -define(PROBLEMS,  "sudoku_problems.txt").
 -define(SOLUTIONS, "sudoku_solutions.txt").
 
--spec par_benchmarks() -> {musecs(), bm_results()}.
-par_benchmarks() ->
+-spec benchmarks_parallel() -> {musecs(), bm_results()}.
+benchmarks_parallel() ->
   {ok, Problems} = file:consult(?PROBLEMS),
-  timer:tc(fun () -> par_benchmarks(Problems) end).
+  timer:tc(fun () -> benchmarks_parallel(Problems) end).
 
--spec par_benchmarks([puzzle()]) -> bm_results().
-par_benchmarks([]) -> [];
+-spec benchmarks_parallel([puzzle()]) -> bm_results().
+benchmarks_parallel([]) -> [];
 
-par_benchmarks([Puzzle|Puzzles]) ->
+benchmarks_parallel([Puzzle|Puzzles]) ->
   Par = self(),
   Ref = make_ref(),
   spawn_link(fun() ->
-                 Par ! {Ref, par_benchmarks(Puzzles)}
+                 Par ! {Ref, benchmarks_parallel(Puzzles)}
              end),
   {Name,M} = Puzzle, 
-  Result = {Name, bm(fun() -> solve(M) end)}, 
+  Result = {Name, bm(fun() -> solve_parallel(M) end)}, 
   receive {Ref, Ys} -> [Result|Ys] end.
+
 
 -spec benchmarks() -> {musecs(), bm_results()}.
 benchmarks() ->
@@ -75,6 +76,41 @@ repeat(N, F) when N > 0 ->
 %%
 %% solve all puzzles in the (hardcoded) input file
 %%
+solve_all_parallel([]) -> [];
+
+solve_all_parallel([Puzzle|Puzzles]) ->
+  Par = self(),
+  Ref = make_ref(),
+  spawn_link(fun() ->
+                 Par ! {Ref, solve_all_parallel(Puzzles)}
+             end),
+  {Name,M} = Puzzle, 
+  Result = {Name, solve_parallel(M)}, 
+  receive {Ref, Ys} -> [Result|Ys] end.
+
+
+-spec solve_all_parallel() -> [{name(), solution()}].
+solve_all_parallel() ->
+  {ok, Puzzles} = file:consult(?PROBLEMS),
+  solve_all_parallel(Puzzles).
+
+%%
+%% solve a Sudoku puzzle
+%%
+-spec solve_parallel(matrix()) -> solution().
+solve_parallel(M) ->
+  Solution = solve_refined(refine(fill(M))),
+  case valid_solution(Solution) of
+    true ->
+      Solution;
+    false -> % in correct puzzles should never happen
+      exit({invalid_solution, Solution})
+  end.
+
+
+%%
+%% solve all puzzles in the (hardcoded) input file
+%%
 -spec solve_all() -> [{name(), solution()}].
 solve_all() ->
   {ok, Puzzles} = file:consult(?PROBLEMS),
@@ -86,7 +122,6 @@ solve_all() ->
 -spec solve(matrix()) -> solution().
 solve(M) ->
   Solution = solve_refined(refine(fill(M))),
-  %io:format("~w~n~n", [Solution]),
   case valid_solution(Solution) of
     true ->
       Solution;
@@ -168,47 +203,10 @@ refine(M) ->
       refine(NewM)
   end.
 
-receive_matrix(Acc, 0) -> Acc;
-receive_matrix(Acc, RN) when RN > 0 ->
-  receive_matrix([receive{RN, RefinedRow} -> RefinedRow end|Acc], RN-1).
-
-par_refine_awesome(M) ->
-  Par = self(),
-  RowNumbers = lists:seq(1, length(M)),
- % [spawn_link(fun() -> Par ! {RN, refine_row(R)} end) || {R,RN} <- lists:zip(M, RowNumbers)],
-  receive_matrix([], 9). 
-%lists:foldr(fun(X,Acc) -> receive {X, RefinedRow} -> [RefinedRow|Acc] end end, [], RowNumbers).
-
-
-par_spawn_refine_rows(_, []) -> [];
-par_spawn_refine_rows(0, M) -> [refine_row(R) || R <- M];
-par_spawn_refine_rows(T, M) ->
-  Par = self(),
-  Ref = make_ref(), 
-  {Matrix1, Matrix2} = lists:split(floor(length(M)/2), M),
-  spawn_link(fun() ->
-                 Par ! {Ref, par_spawn_refine_rows(T-1, Matrix2)}
-             end),
-  RefinedRow = par_spawn_refine_rows(T-1, Matrix1),
-  receive {Ref, Row} -> RefinedRow ++ Row end.
-
-par_refine_rows(no_solution) ->
-  no_solution;
-
-par_refine_rows(M) ->
-  Refined = par_spawn_refine_rows(1, M),
-  %io:format("~w~n\n", [Refined]),
-  case lists:member(no_solution, Refined) of
-    true -> no_solution;
-    false -> Refined
-  end.
-
-
 refine_rows(no_solution) ->
   no_solution;
 refine_rows(M) ->
   Refined = [refine_row(R) || R <- M],
-  %io:format("~w~n\n", [Refined]),
   case lists:member(no_solution, Refined) of
     true -> no_solution;
     false -> Refined
@@ -268,40 +266,12 @@ guess(M) ->
 		  is_list(X)]),
   {I, J, X}.
 
-par_guess(T, M0, I, J, Guesses) when length(Guesses) == 1 -> refine(update_element(M0, I, J, Guesses));
-par_guess(0, M0, I, J, Guesses) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];
-par_guess(T, M0, I, J, Guesses) ->  
-  Par = self(),
-  Ref = make_ref(),
-  {Guesses1, Guesses2} = lists:split(floor(length(Guesses)/2), Guesses),
-  spawn_link(fun() ->
-                 Par ! {Ref, par_guess(T-1, M0, I ,J, Guesses2)}
-             end),
-  Ms = par_guess(T-1, M0, I ,J, Guesses1),   
-  receive {Ref, GuessM} -> GuessM ++ Ms end.
-
-
-par_guess_awesome(T, M0, I, J, []) -> []; 
-par_guess_awesome(0, M0, I, J, Guesses) -> [refine(update_element(M0, I, J, G)) || G <- Guesses];  
-par_guess_awesome(T, M0, I, J, [Head|Guesses]) -> 
-  Par = self(),
-  Ref = make_ref(),
-  spawn_link(fun() -> 
-             Par ! {Ref, par_guess_awesome(T-1, M0, I, J, Guesses)}
-             end),
-
-  Ms = refine(update_element(M0, I, J, Head)),
-  receive {Ref, GuessM} -> [Ms|GuessM] end.
-
-
 %% given a matrix, guess an element to form a list of possible
 %% extended matrices, easiest problem first.
 
 guesses(M0) ->
   {I, J, Guesses} = guess(M0),
-  %io:format("~w~n", [Guesses]),
-  %Ms = [refine(update_element(M0, I, J, G)) || G <- Guesses],
-  Ms = par_guess_awesome(4, M0, I, J, Guesses),
+  Ms = [refine(update_element(M0, I, J, G)) || G <- Guesses],
   SortedGuesses = lists:sort([{hard(M), M} || M <- Ms, not is_wrong(M)]),
   [G || {_, G} <- SortedGuesses].
 
