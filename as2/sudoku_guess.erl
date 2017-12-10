@@ -86,7 +86,7 @@ solve_all() ->
 -spec solve(matrix()) -> solution().
 solve(M) ->
   Solution = solve_refined(refine(fill(M))),
-  io:format("~w~n~n", [Solution]),
+  %io:format("~w~n~n", [Solution]),
   case valid_solution(Solution) of
     true ->
       Solution;
