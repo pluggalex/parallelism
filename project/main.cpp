@@ -1,7 +1,11 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
-#include "opencv2/opencv.hpp"
+
+#ifdef __APPLE__
+  #include "opencv2/opencv.hpp"
+#endif
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -52,8 +56,9 @@ void apply_filter(int rows, int cols, Mat &image){
     Vec3b intensity{0, 0, 0};
     for(int filter_rows = 0; filter_rows < rows_in_filter; filter_rows++)
       for(int filter_cols = 0; filter_cols < cols_in_filter; filter_cols++){
-        int pixel_x = (rows + filter_rows - rows_in_filter/2 + image.rows) % image.rows;
-        int pixel_y = (cols + filter_cols - cols_in_filter/2 + image.cols) % image.cols;
+        int pixel_x = (rows + filter_rows - rows_in_filter/2 + image.rows) % image.rows; 
+        int pixel_y = (cols + filter_cols - cols_in_filter/2 + image.cols) % image.cols; 
+        
         intensity[0] += image.at<Vec3b>(pixel_x, pixel_y)[0] * filter[filter_rows][filter_cols] * factor;
         intensity[1] += image.at<Vec3b>(pixel_x, pixel_y)[1] * filter[filter_rows][filter_cols] * factor;
         intensity[2] += image.at<Vec3b>(pixel_x, pixel_y)[2] * filter[filter_rows][filter_cols] * factor;
@@ -83,7 +88,7 @@ int main( int argc, char** argv )
         apply_filter(rows, cols, image);
       }
     }
-
+   
     namedWindow("Display window",
                 WINDOW_AUTOSIZE);  // Create a window for display.
     imshow( "Display window", image );                // Show our image inside it.
