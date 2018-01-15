@@ -262,19 +262,22 @@ void process_image(Mat &image,
                    std::vector<filter_properties*> &rest_filters,
                    int thread_count) {
   std::thread *workers = new std::thread[thread_count];
+  
+  //Start the transactional filters and wait for them to join before continuing
   for(int i = 0; i < thread_count; i++){
     workers[i] = std::thread(work_filters, std::ref(transactional_filters), std::ref(image));
   }
-
   for(int i = 0; i < thread_count; i++)
     workers[i].join();
 
+  //Start up the non-transactional filters and wait on join before rendering or whatnot
   for(int i = 0; i < thread_count; i++){
     workers[i] = std::thread(work_filters, std::ref(rest_filters), std::ref(image));
   }
-  
   for(int i = 0; i < thread_count; i++)
     workers[i].join();
+
+  delete[] workers;
 }
 
 void render(Mat& image){
@@ -298,7 +301,6 @@ int main( int argc, char** argv )
     create_filter_selection(image, filter_selection);
     request_filter(user_input);
   //push filters to either trans_filters[] or non_trans_filters[]
-  //start threads and send to work_filters()
     process_image(image, transactional_filters, rest_filters, thread_count);
     render(image);   
   }
