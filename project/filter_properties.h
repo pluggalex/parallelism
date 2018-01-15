@@ -35,8 +35,5 @@ class filter_properties{
 
   PART_TYPE partition_type;
   FILTER_CATEGORY category;  
-
-
 };
-
 #endif

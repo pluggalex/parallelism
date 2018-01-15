@@ -1,58 +1,27 @@
-#include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/highgui.hpp>
-#include <opencv2/opencv.hpp>
-
 #include "filter_properties.h"
 #include <thread>
 #include <string>
 #include <iostream>
-#include <sstream>
 #include <vector>
+#include <sstream>
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui.hpp>
+
+
 using namespace cv;
 using namespace std;
 
-Mat rotateImage(double angle, Mat &oldImage)
-{
-    Mat src = oldImage;
 
 
-    // get rotation matrix for rotating the image around its center
-    Point2f center(src.cols/2.0, src.rows/2.0);
-    Mat rot = getRotationMatrix2D(center, angle, 1.0);
-    // determine bounding rectangle
-    Rect bbox = RotatedRect(center,src.size(), angle).boundingRect();
-    // adjust transformation matrix
-    rot.at<double>(0,2) += bbox.width/2.0 - center.x;
-    rot.at<double>(1,2) += bbox.height/2.0 - center.y;
-
-    Mat dst;
-    warpAffine(src, dst, rot, bbox.size());
-
-
-    return dst;
-}
-
-std::vector<std::vector<double>> filter{
-                            {0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0},
-                            {0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0},
-                            {0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0},
-                            {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0},
-                            {0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0},
-                            {0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0},
-                            {0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0}
-};
-
-
-
-
-void apply_filter(int rows, int cols, Mat &image){
+void apply_filter(int rows, int cols, Mat &image,
+                  std::vector<std::vector<double>> filter, double factor) {
     if(filter.size() < 1)
       return;
 
     int rows_in_filter = filter.size();
     int cols_in_filter = filter[0].size();
-    double factor = 1.0 / 25.0;
 
     Vec3b intensity{0, 0, 0};
     for(int filter_rows = 0; filter_rows < rows_in_filter; filter_rows++)
@@ -67,15 +36,61 @@ void apply_filter(int rows, int cols, Mat &image){
     image.at<Vec3b>(rows, cols) = intensity;
 }
 
+
+void blur_interface(int row, int col, int partition_size, Mat &image){
+  std::vector<std::vector<double>> filter{{0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0},
+                                          {0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0},
+                                          {0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0},
+                                          {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0},
+                                          {0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0},
+                                          {0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0},
+                                          {0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0}};
+  double factor = 1.0 / 25.0;
+  
+  int end_row = (partition_size / image.rows) * image.rows + row;
+  for (int r = row; r < end_row && r < image.rows; r++) {
+    for (int c = col; c < image.cols; c++) {
+      apply_filter(r, c, image, filter, factor);
+    }
+  }
+}
+
+
+void greyscale(int row, int col, Mat &image){
+  __transactional_atomic {
+    double blue = image.at<Vec3b>(row, col)[0];
+    double green = image.at<Vec3b>(row, col)[1];
+    double red = image.at<Vec3b>(row, col)[2];
+
+    double grey = (blue + green + red) / 3;
+
+    image.at<Vec3b>(row, col)[0] = grey;
+    image.at<Vec3b>(row, col)[1] = grey;
+    image.at<Vec3b>(row, col)[2] = grey;
+  }
+}
+
+void greyscale_interface(int row, int col, int partition_size, Mat &image){
+  int end_row = (partition_size / image.rows) * image.rows + row;
+  for (int r = row; r < end_row && r < image.rows; r++) {
+    for (int c = col; c < image.cols; c++) {
+      greyscale(r, c, image);
+    }
+  }
+}
+
+
 void mirror(int rows, int cols, Mat &image){
-        Vec3b oldPosition{0, 0, 0};
-        Vec3b newPosition{0, 0, 0};
-         oldPosition = image.at<Vec3b>(rows, cols);
-         newPosition = image.at<Vec3b>(rows,image.cols-cols);
+  Vec3b oldPosition{0, 0, 0};
+  Vec3b newPosition{0, 0, 0};
 
+  __transactional_atomic {
+    oldPosition = image.at<Vec3b>(rows, cols);
+    newPosition = image.at<Vec3b>(rows, image.cols - cols);
 
-         image.at<Vec3b>(rows, cols) = newPosition;
-         image.at<Vec3b>(rows,image.cols-cols) = oldPosition;
+    image.at<Vec3b>(rows, cols) = newPosition;
+    image.at<Vec3b>(rows, image.cols - cols) = oldPosition;
+  }
 }
 
 void mirror_interface(int row, int col, int partition_size, Mat &image){
@@ -87,28 +102,17 @@ void mirror_interface(int row, int col, int partition_size, Mat &image){
   }
 }
 
+void flip(int rows, int cols, Mat &image) {
+  __transactional_atomic {
+    Vec3b oldPosition{0, 0, 0};
+    Vec3b newPosition{0, 0, 0};
 
-void flip(int rows, int cols, Mat &image){
+    oldPosition = image.at<Vec3b>(rows, cols);
+    newPosition = image.at<Vec3b>(image.rows - rows, cols);
 
-          Vec3b oldPosition{0, 0, 0};
-          Vec3b newPosition{0, 0, 0};
-
-         oldPosition[0] = image.at<Vec3b>(rows, cols)[0];
-         oldPosition[1] = image.at<Vec3b>(rows, cols)[1];
-         oldPosition[2] = image.at<Vec3b>(rows, cols)[2];
-
-         newPosition[0] = image.at<Vec3b>(image.rows-rows,cols)[0];
-         newPosition[1] = image.at<Vec3b>(image.rows-rows,cols)[1];
-         newPosition[2] = image.at<Vec3b>(image.rows-rows,cols)[2];
-
-
-         image.at<Vec3b>(rows, cols)[0] = newPosition[0];
-         image.at<Vec3b>(rows, cols)[1] = newPosition[1];
-         image.at<Vec3b>(rows, cols)[2] = newPosition[2];
-         image.at<Vec3b>(image.rows-rows,cols)[0] = oldPosition[0];
-         image.at<Vec3b>(image.rows-rows,cols)[1] = oldPosition[1];
-         image.at<Vec3b>(image.rows-rows,cols)[2] = oldPosition[2];
-
+    image.at<Vec3b>(rows, cols) = newPosition;
+    image.at<Vec3b>(image.rows - rows, cols) = oldPosition;
+  }
 }
 
 void flip_interface(int row, int col, int partition_size, Mat &image){
@@ -122,9 +126,10 @@ void flip_interface(int row, int col, int partition_size, Mat &image){
 
 void work_filters(std::vector<filter_properties*> &filters, Mat &image){
   for(int i = 0; i < (int)filters.size();){
-    //trans_atomic{
-    int part = filters[i]->part_counter;
-    filters[i]->part_counter++;
+    int part;
+    //__transaction_atomic{
+      part = filters[i]->part_counter;
+      filters[i]->part_counter++;
     //} 
     if(part > filters[i]->max_parts)
       i++;
@@ -152,6 +157,7 @@ void start_menu(int& threads){
   }
 
   cin.clear();
+  cin.ignore(INT_MAX, '\n');  
 }
 
 
@@ -186,6 +192,8 @@ int image_menu(Mat& image){
     while(!(cin >> input) || !(input >= 1 && input <= 3)){
       std::cout << "Please type 1, 2 or 3: "; 
     }
+    cin.clear();
+    cin.ignore(INT_MAX, '\n');  
 
     if (input == 2){
       image.release();
@@ -194,6 +202,7 @@ int image_menu(Mat& image){
     else if(input == 3) return -1;
     
   }
+
   return 0;
 }
 
@@ -207,6 +216,8 @@ typedef enum FILTER_NAME {
 } FILTER_NAME;
 
 void create_filter_selection(Mat& image, std::vector<filter_properties*> &filter_selection){
+  if(!filter_selection.empty()) return;
+
   int size = 1000000; //Pixels per working thread on the image
   int max_partitions = image.rows * image.cols / size; //Maximum partitions per image per filter
 
@@ -219,14 +230,16 @@ void create_filter_selection(Mat& image, std::vector<filter_properties*> &filter
       new filter_properties(size, max_partitions, flip_interface, COLUMNS, SINGLE_TRANS));
 
   //Blur
-//  filter_selection.push_back(
-//      new filter_properties(size, max_partitions, , ROWS, NO_TRANS));
+  filter_selection.push_back(
+      new filter_properties(size, max_partitions, blur_interface, ROWS, NO_TRANS));
 
-
+  //Greyscale
+  filter_selection.push_back(
+      new filter_properties(size, max_partitions, greyscale_interface, ROWS, MULTI_TRANS));
 }
 
-void print_filter_menu(std::string optional_top_msg = ""){
 
+void print_filter_menu(std::string optional_top_msg = ""){
   std::cout << optional_top_msg;
   std::cout << "Which filters do you want to apply?\n";
   std::cout << "1) Mirror image.\n";
@@ -239,39 +252,36 @@ void print_filter_menu(std::string optional_top_msg = ""){
 
 };
 
-int request_filter(std::vector<int>& input, std::vector<filter_properties*> &filters){
- 
+
+int request_filter(std::vector<int>& input, std::vector<filter_properties*> &filters){ 
   print_filter_menu();
-
-
-  input.push_back(0);
-  input.push_back(1);
-
-  int i = 0;
   string temp_input = "";
- /* istringstream iss;
- 
+  istringstream iss;
+
   while (true) {
     getline(cin, temp_input);
     iss.str(temp_input);
 
-    while (iss >> i) {
+    int i;
+    while(true){
+      iss >> i;
+      if(iss.fail()) break;
       if(i == 0) return -1;
-      if(i < 0 || i > (int)filters.size()){
-        input.clear();
-        break;
-      } 
-      input.push_back(i-1);
-    }
+      if(i < 0 || i > filters.size()) break;
 
+      input.push_back(i - 1);
+      if (!iss.good()) break;
+    }
     iss.clear();
     iss.str("");
+    cin.clear();
 
     if(input.size()) break;
     print_filter_menu("Input could not be read. Please try again.\n");
-  }*/
+  }
   return 0;
 }
+
 
 void parse_input_to_filters(
     std::vector<filter_properties *> &filter_selection,
@@ -331,7 +341,7 @@ void createWindow(std::string name){
 
 void render(Mat& image, std::string name){
     imshow(name, image);
-    waitKey(1);
+    waitKey(5);
 }
 
 int main( int argc, char** argv )
@@ -356,12 +366,10 @@ int main( int argc, char** argv )
     process_image(image, transactional_filters, rest_filters, thread_count);
     render(image, window_name);   
   }
-  //delete
 
   if (!image.empty()) 
     image.release();
 
-  //delete[] threads;
   for(auto filter : filter_selection)
     delete filter;
   return 0;
