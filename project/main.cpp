@@ -1,8 +1,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
-#include "opencv2/opencv.hpp"
-
+#include <opencv2/opencv.hpp>
 
 #include "filter_properties.h"
 #include <thread>
@@ -67,6 +66,7 @@ void apply_filter(int rows, int cols, Mat &image){
       }
     image.at<Vec3b>(rows, cols) = intensity;
 }
+
 void mirror(int rows, int cols, Mat &image){
         Vec3b oldPosition{0, 0, 0};
         Vec3b newPosition{0, 0, 0};
@@ -77,6 +77,17 @@ void mirror(int rows, int cols, Mat &image){
          image.at<Vec3b>(rows, cols) = newPosition;
          image.at<Vec3b>(rows,image.cols-cols) = oldPosition;
 }
+
+void mirror_interface(int row, int col, int partition_size, Mat &image){
+  int end_row = (partition_size / image.rows) * image.rows + row;
+  for(int r = row; r < end_row && r < image.rows; r++){
+    for(int c = col; c < image.cols/2; c++){
+      mirror(r,c,image);
+    }
+  }
+}
+
+
 void flip(int rows, int cols, Mat &image){
 
           Vec3b oldPosition{0, 0, 0};
@@ -100,14 +111,14 @@ void flip(int rows, int cols, Mat &image){
 
 }
 
-void mirror_all(int rows, int cols, Mat &image){
-  for (int row = 0; row < rows; row++) {
-      for(int col = 0; col < cols/2; col++){
-        mirror(row, col, image);
-      }
+void flip_interface(int row, int col, int partition_size, Mat &image){
+  int end_col = (partition_size / image.cols) * image.cols + col;
+  for(int r = row; r < image.rows/2; r++){
+    for(int c = col; c < end_col && c < image.cols; c++){
+      flip(r,c,image);
     }
+  }
 }
-
 
 void work_filters(std::vector<filter_properties*> &filters, Mat &image){
   for(int i = 0; i < (int)filters.size();){
@@ -117,26 +128,30 @@ void work_filters(std::vector<filter_properties*> &filters, Mat &image){
     //} 
     if(part > filters[i]->max_parts)
       i++;
-    else
-      filters[i]->ptr_to_filter(part * (filters[i]->partition_size) *
+    else{
+      int row_number = (filters[i]->partition_size / image.rows) * image.rows;
+      int col_number = (filters[i]->partition_size / image.cols) * image.cols;
+      filters[i]->ptr_to_filter(part * row_number *
                                 ((filters[i]->partition_type) == ROWS),
-                                part * (filters[i]->partition_size) *
+                                part * col_number *
                                 ((filters[i]->partition_type) == COLUMNS),
+                                filters[i]->partition_size,
                                 image);
+    }
   }
 }
-
 
 void start_menu(int& threads){
   std::cout << "Welcome the our image processor!\n";
   std::cout << "First of, how many threads do you want to run when processing your image?\n";
   std::cout << "Threads: ";
   
-  while(!cin >> threads){
+  while(!(cin >> threads)){
     std::cout << "Please try again.\n";
     std::cout << "Threads: ";
   }
 
+  cin.clear();
 }
 
 
@@ -153,6 +168,7 @@ void request_image(Mat& image){
     std::cout << "Could not read file please trye again: ";
     getline(cin, file);
   }
+  cin.clear();
 }
 
 
@@ -164,10 +180,10 @@ int image_menu(Mat& image){
     std::cout << "1) Continue working on current image.\n";
     std::cout << "2) Change image.\n";
     std::cout << "3) Quit.\n";
-    std::cout << "Your choise: ";
+    std::cout << "Your choice: ";
 
     int input = 0;
-    while(!cin >> input || !(input >= 1 && input <= 3)){
+    while(!(cin >> input) || !(input >= 1 && input <= 3)){
       std::cout << "Please type 1, 2 or 3: "; 
     }
 
@@ -196,11 +212,11 @@ void create_filter_selection(Mat& image, std::vector<filter_properties*> &filter
 
   //Mirror filter
   filter_selection.push_back(
-      new filter_properties(size, max_partitions, mirror, ROWS, SINGLE_TRANS));
+      new filter_properties(size, max_partitions, mirror_interface, ROWS, SINGLE_TRANS));
 
   //Flip filter
   filter_selection.push_back(
-      new filter_properties(size, max_partitions, flip, COLUMNS, SINGLE_TRANS));
+      new filter_properties(size, max_partitions, flip_interface, COLUMNS, SINGLE_TRANS));
 
   //Blur
 //  filter_selection.push_back(
@@ -223,37 +239,65 @@ void print_filter_menu(std::string optional_top_msg = ""){
 
 };
 
-void request_filter(std::vector<int>& input){
+int request_filter(std::vector<int>& input, std::vector<filter_properties*> &filters){
  
   print_filter_menu();
 
-  int i;
-  std::string temp_input;
-  std::stringstream ss;
-  
-  while (true) {
-    std::getline(std::cin, temp_input);
-    ss << temp_input;
 
-   /* while (ss >> i) {
-      input.push_back(i);
+  input.push_back(0);
+  input.push_back(1);
+
+  int i = 0;
+  string temp_input = "";
+ /* istringstream iss;
+ 
+  while (true) {
+    getline(cin, temp_input);
+    iss.str(temp_input);
+
+    while (iss >> i) {
+      if(i == 0) return -1;
+      if(i < 0 || i > (int)filters.size()){
+        input.clear();
+        break;
+      } 
+      input.push_back(i-1);
     }
-*/
-    ss.clear();
-    ss.str("");
+
+    iss.clear();
+    iss.str("");
 
     if(input.size()) break;
     print_filter_menu("Input could not be read. Please try again.\n");
-  }
+  }*/
+  return 0;
 }
 
+void parse_input_to_filters(
+    std::vector<filter_properties *> &filter_selection,
+    std::vector<int> &user_input,
+    std::vector<filter_properties *> &transactional_filters,
+    std::vector<filter_properties *> &rest_filters) {
 
-int sort_filters(std::vector<filter_properties*>& filter_selection,
-                 std::vector<int>& user_input,
-                 std::vector<filter_properties*>& transactional_filters,
-                 std::vector<filter_properties*>& rest_filters) {
+  std::vector<filter_properties*> temp_single_tran;
 
-  return 0;
+  for(int i : user_input){
+   FILTER_CATEGORY cat = filter_selection[i]->category; 
+    if (cat == MULTI_TRANS)
+      transactional_filters.push_back(filter_selection[i]);
+    else if(cat == SINGLE_TRANS)
+      temp_single_tran.push_back(filter_selection[i]);
+    else if(cat == NO_TRANS)
+      rest_filters.push_back(filter_selection[i]);
+  }
+
+  if(temp_single_tran.size() > 0){
+    transactional_filters.push_back(temp_single_tran[temp_single_tran.size()-1]);
+    temp_single_tran.pop_back();
+  }
+
+  for(auto filter : temp_single_tran)
+    rest_filters.push_back(filter);
 }
 
 
@@ -280,9 +324,14 @@ void process_image(Mat &image,
   delete[] workers;
 }
 
-void render(Mat& image){
-  namedWindow("SomeName", WINDOW_AUTOSIZE);  // Create a window for display.
-  imshow("SomeName", image);
+void createWindow(std::string name){
+  namedWindow(name, WINDOW_AUTOSIZE);  // Create a window for display.
+  waitKey(0);
+}
+
+void render(Mat& image, std::string name){
+    imshow(name, image);
+    waitKey(1);
 }
 
 int main( int argc, char** argv )
@@ -292,17 +341,20 @@ int main( int argc, char** argv )
   std::vector<filter_properties*> transactional_filters;
   std::vector<filter_properties*> rest_filters;
   std::vector<int> user_input;
+  std::string window_name = "ImageWindow";
   int thread_count;
   Mat image;
+  std::thread render_thread;
+  render_thread = std::thread(createWindow, window_name);
 
+  start_menu(thread_count);
   while(true){
-    start_menu(thread_count);
     if(image_menu(image) == -1) break;
     create_filter_selection(image, filter_selection);
-    request_filter(user_input);
-  //push filters to either trans_filters[] or non_trans_filters[]
+    if(request_filter(user_input, filter_selection) == -1) break;
+    parse_input_to_filters(filter_selection, user_input, transactional_filters, rest_filters); 
     process_image(image, transactional_filters, rest_filters, thread_count);
-    render(image);   
+    render(image, window_name);   
   }
   //delete
 
@@ -310,6 +362,7 @@ int main( int argc, char** argv )
     image.release();
 
   //delete[] threads;
-
-    return 0;
+  for(auto filter : filter_selection)
+    delete filter;
+  return 0;
 }

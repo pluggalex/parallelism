@@ -17,7 +17,7 @@ typedef enum FILTER_CATEGORY {
 
 class filter_properties{
   public:
-  filter_properties(int size, int max, void(*fun_ptr)(int, int, Mat&), PART_TYPE type,
+  filter_properties(int size, int max, void(*fun_ptr)(int, int, int, Mat&), PART_TYPE type,
                     FILTER_CATEGORY cat)
       : part_counter(0),
         partition_size(size),
@@ -31,7 +31,7 @@ class filter_properties{
   int part_counter;
   int partition_size;
   int max_parts;    
-  void (*ptr_to_filter)(int, int, Mat&);
+  void (*ptr_to_filter)(int, int, int, Mat&);
 
   PART_TYPE partition_type;
   FILTER_CATEGORY category;  
